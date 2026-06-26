@@ -1,0 +1,410 @@
+// CW Painters — Ritriwill Holdings job/quoting system
+// SQLite for prototype; swap datasource to postgresql for production
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Tenant ──────────────────────────────────────────────────────────────────
+
+model Tenant {
+  id          String   @id @default(cuid())
+  name        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  companies   CompanyEntity[]
+  users       User[]
+  leads       Lead[]
+  jobs        Job[]
+  priceTemplates PriceTemplate[]
+  drawSchedules DrawSchedule[]
+  workers     Worker[]
+  wageRates   WageRate[]
+}
+
+// ─── Company entity (Riaan can invoice from multiple legal entities) ──────────
+
+model CompanyEntity {
+  id              String   @id @default(cuid())
+  tenantId        String
+  legalName       String
+  tradingAs       String?
+  vatNumber       String?
+  bankName        String?
+  bankAccount     String?
+  bankBranch      String?
+  invoicePrefix   String   @default("INV")
+  invoiceSequence Int      @default(1)
+  logoUrl         String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  invoices        Invoice[]
+}
+
+// ─── Users & roles ───────────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  SALESMAN
+  FOREMAN
+}
+
+model User {
+  id           String   @id @default(cuid())
+  tenantId     String
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         Role
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  leadsLogged  Lead[]   @relation("LeadLoggedBy")
+  jobsManaged  Job[]    @relation("JobSalesman")
+  jobsForeman  Job[]    @relation("JobForeman")
+  dailyReports DailySiteReport[]
+}
+
+// ─── Workers (site labour — separate from system users) ──────────────────────
+
+model Worker {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  idNumber  String?
+  phone     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  wageRates WageRate[]
+  timeEntries TimeEntry[]
+}
+
+model WageRate {
+  id          String   @id @default(cuid())
+  tenantId    String
+  workerId    String
+  ratePerHour Float    // PLACEHOLDER — confirm overtime rules with Riaan
+  effectiveFrom DateTime @default(now())
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  worker      Worker   @relation(fields: [workerId], references: [id])
+}
+
+// ─── Service categories ───────────────────────────────────────────────────────
+
+enum ServiceCategory {
+  PAINTING
+  WATERPROOFING
+  DAMP_PROOFING
+  RUBBERISING
+  RENOVATIONS
+  MAINTENANCE
+  CONSTRUCTION
+}
+
+// ─── Draw schedules (configurable per service category) ───────────────────────
+
+model DrawSchedule {
+  id              String          @id @default(cuid())
+  tenantId        String
+  serviceCategory ServiceCategory
+  stages          DrawStage[]
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  tenant          Tenant          @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, serviceCategory])
+}
+
+model DrawStage {
+  id             String       @id @default(cuid())
+  drawScheduleId String
+  label          String       // e.g. "Deposit", "Progress", "Final"
+  percentage     Float        // PLACEHOLDER — confirm with Riaan (e.g. 30/30/40 for exteriors)
+  order          Int
+
+  drawSchedule   DrawSchedule @relation(fields: [drawScheduleId], references: [id], onDelete: Cascade)
+}
+
+// ─── Price templates ──────────────────────────────────────────────────────────
+
+model PriceTemplate {
+  id              String          @id @default(cuid())
+  tenantId        String
+  serviceCategory ServiceCategory
+  description     String
+  unit            String?         // e.g. "m²", "lm", "each"
+  unitPrice       Float
+  active          Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  tenant          Tenant          @relation(fields: [tenantId], references: [id])
+}
+
+// ─── Leads ────────────────────────────────────────────────────────────────────
+
+enum LeadSource {
+  PHONE
+  WHATSAPP
+  EMAIL
+  WEBSITE
+  REFERRAL
+  OTHER
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  SITE_VISIT_BOOKED
+  QUOTE_SENT
+  ACCEPTED
+  LOST
+}
+
+model Lead {
+  id          String     @id @default(cuid())
+  tenantId    String
+  loggedById  String
+  clientName  String
+  clientEmail String?
+  clientPhone String?
+  source      LeadSource
+  status      LeadStatus @default(NEW)
+  address     String?
+  notes       String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  tenant      Tenant     @relation(fields: [tenantId], references: [id])
+  loggedBy    User       @relation("LeadLoggedBy", fields: [loggedById], references: [id])
+  job         Job?
+  quotes      Quote[]
+}
+
+// ─── Jobs ─────────────────────────────────────────────────────────────────────
+
+enum JobStatus {
+  PENDING
+  IN_PROGRESS
+  ON_HOLD
+  COMPLETE
+  INVOICED
+  CANCELLED
+}
+
+model Job {
+  id              String          @id @default(cuid())
+  tenantId        String
+  leadId          String?         @unique
+  acceptedQuoteId String?         @unique
+  salesmanId      String?
+  foremanId       String?
+  serviceCategory ServiceCategory
+  status          JobStatus       @default(PENDING)
+  siteAddress     String
+  startDate       DateTime?
+  endDate         DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  tenant          Tenant          @relation(fields: [tenantId], references: [id])
+  lead            Lead?           @relation(fields: [leadId], references: [id])
+  acceptedQuote   Quote?          @relation("AcceptedQuote", fields: [acceptedQuoteId], references: [id])
+  salesman        User?           @relation("JobSalesman", fields: [salesmanId], references: [id])
+  foreman         User?           @relation("JobForeman", fields: [foremanId], references: [id])
+  quotes          Quote[]         @relation("JobQuotes")
+  invoices        Invoice[]
+  dailyReports    DailySiteReport[]
+  timeEntries     TimeEntry[]
+  clientSignOff   ClientSignOff?
+  worksheet       ForemanWorksheet?
+}
+
+// ─── Quotes ───────────────────────────────────────────────────────────────────
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+model Quote {
+  id              String      @id @default(cuid())
+  tenantId        String?
+  jobId           String?
+  leadId          String?
+  quoteNumber     String      @unique
+  serviceCategory ServiceCategory
+  status          QuoteStatus @default(DRAFT)
+  clientName      String
+  clientEmail     String?
+  clientPhone     String?
+  siteAddress     String
+  notes           String?
+  vatRate         Float       @default(0.15) // PLACEHOLDER — 15% VAT, confirm with Riaan
+  subtotal        Float       @default(0)
+  vatAmount       Float       @default(0)
+  total           Float       @default(0)
+  validUntil      DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  lead            Lead?       @relation(fields: [leadId], references: [id])
+  job             Job?        @relation("JobQuotes", fields: [jobId], references: [id])
+  acceptedByJob   Job?        @relation("AcceptedQuote")
+  lineItems       QuoteLineItem[]
+}
+
+model QuoteLineItem {
+  id              String  @id @default(cuid())
+  quoteId         String
+  isCustom        Boolean @default(false) // true = free-form, false = from PriceTemplate
+  templateId      String?
+  description     String
+  unit            String?
+  quantity        Float
+  unitPrice       Float
+  lineTotal       Float
+
+  quote           Quote   @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+}
+
+// ─── Foreman worksheet ────────────────────────────────────────────────────────
+
+model ForemanWorksheet {
+  id        String   @id @default(cuid())
+  jobId     String   @unique
+  content   String   // JSON-serialised simplified view of the accepted quote
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  job       Job      @relation(fields: [jobId], references: [id])
+}
+
+// ─── Daily site reports ───────────────────────────────────────────────────────
+
+model DailySiteReport {
+  id          String   @id @default(cuid())
+  jobId       String
+  loggedById  String
+  reportDate  DateTime @default(now())
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  job         Job      @relation(fields: [jobId], references: [id])
+  loggedBy    User     @relation(fields: [loggedById], references: [id])
+  materials   MaterialUsed[]
+  photos      SitePhoto[]
+}
+
+model MaterialUsed {
+  id          String          @id @default(cuid())
+  reportId    String
+  description String
+  quantity    Float
+  unit        String?
+  unitCost    Float
+  totalCost   Float
+
+  report      DailySiteReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+}
+
+model SitePhoto {
+  id        String          @id @default(cuid())
+  reportId  String
+  url       String          // local file path for prototype; swap for CDN URL in production
+  caption   String?
+  createdAt DateTime        @default(now())
+
+  report    DailySiteReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+}
+
+// ─── Time entries (clock-in/out) ──────────────────────────────────────────────
+
+enum VerificationMethod {
+  MANUAL  // prototype: manual UI entry
+  KIOSK   // future: facial-recognition kiosk (Jibble/SmartBarrel)
+}
+
+model TimeEntry {
+  id                 String             @id @default(cuid())
+  jobId              String
+  workerId           String
+  clockIn            DateTime
+  clockOut           DateTime?
+  hoursWorked        Float?             // computed on clock-out
+  verificationMethod VerificationMethod @default(MANUAL)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  job                Job                @relation(fields: [jobId], references: [id])
+  worker             Worker             @relation(fields: [workerId], references: [id])
+}
+
+// ─── Invoices ─────────────────────────────────────────────────────────────────
+
+enum InvoiceType {
+  DEPOSIT
+  STAGE
+  FINAL
+  VARIATION
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+model Invoice {
+  id              String        @id @default(cuid())
+  jobId           String
+  companyEntityId String
+  invoiceNumber   String        @unique
+  type            InvoiceType
+  status          InvoiceStatus @default(DRAFT)
+  drawStageLabel  String?
+  drawPercentage  Float?
+  subtotal        Float
+  vatAmount       Float
+  total           Float
+  amountPaid      Float         @default(0)
+  dueDate         DateTime?
+  paidAt          DateTime?
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  job             Job           @relation(fields: [jobId], references: [id])
+  companyEntity   CompanyEntity @relation(fields: [companyEntityId], references: [id])
+}
+
+// ─── Client sign-off ──────────────────────────────────────────────────────────
+
+model ClientSignOff {
+  id          String   @id @default(cuid())
+  jobId       String   @unique
+  signedByName String
+  signedAt    DateTime @default(now())
+  notes       String?
+
+  job         Job      @relation(fields: [jobId], references: [id])
+}
