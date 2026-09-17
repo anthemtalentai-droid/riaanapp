@@ -15,7 +15,17 @@
 
 Verified for real against the live site: admin login + session, foreman PIN login, the full daily-report → anomaly-flag → uplift → office-reconciliation cycle, and the material-request approve → deliver → two-stage price fill cycle — all exercised end to end against the actual database, not just code-reviewed. See "What I tested" below for the blow-by-blow.
 
-**Heads up:** that verification pass left some visible test data in the demo job (a "Smoke test from CLI" report, a delivered Bonding Liquid request, a reconciled uplift batch, a Cordless Drill added to the roster). It's harmless and clearly labelled, but if you want a pristine demo before showing Riaan, say so and I'll clear it out (needs a scoped cleanup pass, not a full reset — my sandbox correctly blocks a mass database wipe without you confirming it directly).
+**Heads up:** that verification pass left some visible test data in the demo job (a "Smoke test from CLI" report, a delivered Bonding Liquid request, a reconciled uplift batch, a Cordless Drill added to the roster, and — from verifying the git push below — one job titled "Push-verify test address"). All harmless and clearly labelled, but if you want a pristine demo before showing Riaan, say so and I'll clear it out (needs a scoped cleanup pass, not a full reset — my sandbox correctly blocks a mass database wipe without you confirming it directly).
+
+## 17 Sept, later — multi-category quotes fixed, pushed to GitHub
+
+- **Quote Builder now shows every service category's templates at once** (grouped), not just whichever one the job is primarily filed under — a mixed-scope job (e.g. waterproofing + painting) no longer needs the category dropdown flipped back and forth to find items. The "category" field is relabelled "Primary Category — for invoicing & reporting" to make clear it's not a hard limit on what the quote can contain.
+- **Pushed to GitHub** — and in doing so, found `origin/main` had **diverged**: 6 commits existed on GitHub that were never pulled into this local checkout (from an earlier pre-Phase-2 attempt at deploying to Railway, before the brief moved hosting to Netlify). Inspected them rather than force-pushing over them: three small, genuinely useful, non-overlapping fixes —
+  1. `package.json`: `start` no longer runs `prisma db push` + reseed on every server start (was risky for a live app)
+  2. `src/lib/prisma.ts`: lazy Prisma client via a Proxy, avoids instantiating at module-load time
+  3. `src/app/jobs/page.tsx`: **redirects straight to the Quote Builder right after creating a job** — this is the exact fix for the "I created a waterproofing job, how do I add more?" friction from earlier.
+  Merged cleanly (zero file overlap with this round's changes), rebuilt clean, pushed, redeployed, verified live.
+- Also added a `CW_Painters_Handbook.md` — an operations reference for the whole system (roles, workflows, Foreman Mode, Settings, the restock/uplift cycles, placeholder numbers to confirm, what's not built yet).
 
 ---
 
