@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import { StatusBadge } from "@/app/dashboard/page";
 import Link from "next/link";
@@ -22,6 +22,7 @@ const CATEGORIES = ["PAINTING", "WATERPROOFING", "DAMP_PROOFING", "RUBBERISING",
 
 function JobsContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const newFromLead = searchParams.get("newFromLead");
   const prefillClientName = searchParams.get("clientName") ?? "";
   const prefillAddress = searchParams.get("address") ?? "";
@@ -41,9 +42,7 @@ function JobsContent() {
     setSaving(true);
     const res = await fetch("/api/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
     const job = await res.json();
-    setJobs([job, ...jobs]);
-    setShowForm(false);
-    setSaving(false);
+    router.push(`/jobs/${job.id}/quote`);
   }
 
   const fmt = (n: number) => `R ${n.toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -78,7 +77,7 @@ function JobsContent() {
             </div>
             <div className="flex gap-3 sm:col-span-2 pt-2">
               <button type="submit" disabled={saving} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg disabled:opacity-50">
-                {saving ? "Creating…" : "Create Job"}
+                {saving ? "Creating…" : "Create Job & Build Quote"}
               </button>
               <button type="button" onClick={() => setShowForm(false)} className="text-sm text-gray-500 hover:text-gray-700 px-4 py-2">Cancel</button>
             </div>
