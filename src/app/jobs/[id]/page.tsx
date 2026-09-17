@@ -10,6 +10,7 @@ const TABS = [
   { key: "overview", label: "Overview", roles: ["ADMIN", "SALESMAN", "FOREMAN"] },
   { key: "quote", label: "Quote", roles: ["ADMIN", "SALESMAN"] },
   { key: "worksheet", label: "Worksheet", roles: ["ADMIN", "SALESMAN", "FOREMAN"] },
+  { key: "site-items", label: "Site Items", roles: ["ADMIN"] },
   { key: "site-reports", label: "Site Reports", roles: ["ADMIN", "SALESMAN", "FOREMAN"] },
   { key: "time-clock", label: "Time Clock", roles: ["ADMIN", "SALESMAN", "FOREMAN"] },
   { key: "invoices", label: "Invoices", roles: ["ADMIN"] },
@@ -84,6 +85,7 @@ export default function JobDetailPage() {
         {tab === "overview" && <OverviewTab job={job} />}
         {tab === "quote" && <QuoteTab job={job} />}
         {tab === "worksheet" && <WorksheetTab job={job} />}
+        {tab === "site-items" && <SiteItemsTab jobId={id} />}
         {tab === "site-reports" && <SiteReportsTab job={job} jobId={id} onRefresh={() => fetch(`/api/jobs/${id}`).then((r) => r.json()).then(setJob)} />}
         {tab === "time-clock" && <TimeClockTab job={job} jobId={id} onRefresh={() => fetch(`/api/jobs/${id}`).then((r) => r.json()).then(setJob)} />}
         {tab === "invoices" && <InvoicesTab job={job} jobId={id} onRefresh={() => fetch(`/api/jobs/${id}`).then((r) => r.json()).then(setJob)} />}
@@ -226,9 +228,97 @@ function WorksheetTab({ job }: { job: any }) {
   );
 }
 
+// ─── Site Items tab (Objective 1b — the Admin-seeded roster a Foreman Mode
+// report is checked against) ────────────────────────────────────────────────
+
+function SiteItemsTab({ jobId }: { jobId: string }) {
+  const [items, setItems] = useState<any[]>([]);
+  const [catalog, setCatalog] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newTool, setNewTool] = useState("");
+  const [newConsumable, setNewConsumable] = useState("");
+
+  function refresh() {
+    fetch(`/api/jobs/${jobId}/site-items`).then((r) => r.json()).then((d) => { setItems(d); setLoading(false); });
+  }
+  useEffect(() => {
+    refresh();
+    fetch("/api/material-catalog").then((r) => r.json()).then(setCatalog);
+  }, [jobId]);
+
+  async function addTool() {
+    if (!newTool.trim()) return;
+    await fetch(`/api/jobs/${jobId}/site-items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "TOOL", name: newTool.trim() }) });
+    setNewTool("");
+    refresh();
+  }
+  async function addConsumable() {
+    const cat = catalog.find((c) => c.name === newConsumable);
+    if (!cat) return;
+    await fetch(`/api/jobs/${jobId}/site-items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "CONSUMABLE", name: cat.name, catalogId: cat.id }) });
+    setNewConsumable("");
+    refresh();
+  }
+  async function remove(itemId: string) {
+    if (!confirm("Remove this from the site roster?")) return;
+    await fetch(`/api/jobs/${jobId}/site-items/${itemId}`, { method: "DELETE" });
+    refresh();
+  }
+
+  if (loading) return <p className="text-gray-400">Loading…</p>;
+
+  const tools = items.filter((i) => i.type === "TOOL");
+  const consumables = items.filter((i) => i.type === "CONSUMABLE");
+
+  return (
+    <div className="grid sm:grid-cols-2 gap-6 max-w-3xl">
+      <div>
+        <h3 className="font-semibold text-sm mb-2">Tools & Equipment on site</h3>
+        <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100 mb-3">
+          {tools.length === 0 && <p className="p-3 text-sm text-gray-400">Nothing planned yet.</p>}
+          {tools.map((t) => (
+            <div key={t.id} className="px-3 py-2 flex items-center justify-between text-sm">
+              <span>{t.name}{t.foremanAdded && <span className="ml-1.5 text-xs text-amber-600">(added on site)</span>}</span>
+              <button onClick={() => remove(t.id)} className="text-xs text-red-500">Remove</button>
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <input value={newTool} onChange={(e) => setNewTool(e.target.value)} placeholder="Add a tool…"
+            className="flex-1 px-2 py-1.5 border border-gray-300 rounded-lg text-sm" />
+          <button onClick={addTool} className="text-sm bg-blue-600 text-white px-3 py-1.5 rounded-lg">Add</button>
+        </div>
+      </div>
+
+      <div>
+        <h3 className="font-semibold text-sm mb-2">Materials expected on site</h3>
+        <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100 mb-3">
+          {consumables.length === 0 && <p className="p-3 text-sm text-gray-400">Nothing planned yet.</p>}
+          {consumables.map((c) => (
+            <div key={c.id} className="px-3 py-2 flex items-center justify-between text-sm">
+              <span>{c.name}{c.lastQuantity != null && <span className="ml-1.5 text-xs text-gray-400">last reading: {c.lastQuantity}{c.unit ?? ""}{c.lastColor ? ` · ${c.lastColor}` : ""}</span>}</span>
+              <button onClick={() => remove(c.id)} className="text-xs text-red-500">Remove</button>
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <select value={newConsumable} onChange={(e) => setNewConsumable(e.target.value)} className="flex-1 px-2 py-1.5 border border-gray-300 rounded-lg text-sm">
+            <option value="">— pick from catalog —</option>
+            {catalog.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+          </select>
+          <button onClick={addConsumable} className="text-sm bg-blue-600 text-white px-3 py-1.5 rounded-lg">Add</button>
+        </div>
+        <p className="text-xs text-gray-400 mt-2">New material types are added in Settings → Material Catalog first.</p>
+      </div>
+    </div>
+  );
+}
+
 // ─── Site Reports tab ─────────────────────────────────────────────────────────
 
 function SiteReportsTab({ job, jobId, onRefresh }: { job: any; jobId: string; onRefresh: () => void }) {
+  const { data: session } = useSession();
+  const isAdmin = ((session?.user as any)?.role) === "ADMIN";
   const [showForm, setShowForm] = useState(false);
   const [notes, setNotes] = useState("");
   const [materials, setMaterials] = useState([{ description: "", quantity: 1, unit: "L", unitCost: 0 }]);
@@ -319,20 +409,65 @@ function SiteReportsTab({ job, jobId, onRefresh }: { job: any; jobId: string; on
               <div className="space-y-1">
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Materials</p>
                 {r.materials.map((m: any) => (
-                  <div key={m.id} className="flex items-center justify-between text-sm">
-                    <span className="text-gray-700">{m.description} — {m.quantity} {m.unit}</span>
-                    <span className="font-medium">{fmt(m.totalCost)}</span>
-                  </div>
+                  <MaterialRow key={m.id} m={m} reportId={r.id} isAdmin={isAdmin} onSaved={onRefresh} />
                 ))}
                 <div className="flex justify-between text-sm font-semibold pt-1 border-t border-gray-100 mt-1">
                   <span>Total materials</span>
-                  <span>{fmt(r.materials.reduce((s: number, m: any) => s + m.totalCost, 0))}</span>
+                  <span>{fmt(r.materials.reduce((s: number, m: any) => s + (m.totalCost ?? 0), 0))}</span>
                 </div>
               </div>
             )}
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function MaterialRow({ m, reportId, isAdmin, onSaved }: { m: any; reportId: string; isAdmin: boolean; onSaved: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [unitCost, setUnitCost] = useState(m.unitCost != null ? String(m.unitCost) : "");
+  const [invoiceNumber, setInvoiceNumber] = useState(m.invoiceNumber ?? "");
+  const fmt = (n: number) => `R ${n.toLocaleString("en-ZA", { minimumFractionDigits: 2 })}`;
+
+  async function save() {
+    await fetch(`/api/daily-reports/${reportId}/materials/${m.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ unitCost: unitCost === "" ? null : Number(unitCost), invoiceNumber }),
+    });
+    setEditing(false);
+    onSaved();
+  }
+
+  return (
+    <div className={`text-sm rounded-lg ${m.anomalyFlag ? "bg-red-50 border border-red-200 px-2 py-1.5" : ""}`}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-gray-700">
+          {m.description} — {m.quantity} {m.unit}
+          {m.color && <span className="text-gray-400"> · {m.color}</span>}
+          {m.invoiceNumber && <span className="text-gray-400"> · Inv {m.invoiceNumber}</span>}
+        </span>
+        <span className="flex items-center gap-2 flex-shrink-0">
+          <span className="font-medium">{m.totalCost != null ? fmt(m.totalCost) : <span className="text-amber-600 text-xs font-normal">no price yet</span>}</span>
+          {isAdmin && !editing && (
+            <button onClick={() => setEditing(true)} className="text-xs text-blue-600 hover:underline">
+              {m.unitCost != null ? "Edit" : "Set price"}
+            </button>
+          )}
+        </span>
+      </div>
+      {m.anomalyFlag && <p className="text-xs text-red-700 font-medium mt-0.5">⚠ {m.anomalyNote}</p>}
+      {editing && (
+        <div className="flex items-center gap-2 mt-1.5">
+          <input value={unitCost} onChange={(e) => setUnitCost(e.target.value)} placeholder="Unit cost (R)"
+            className="w-28 px-2 py-1 border border-gray-300 rounded text-xs" />
+          <input value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} placeholder="Invoice #"
+            className="w-28 px-2 py-1 border border-gray-300 rounded text-xs" />
+          <button onClick={save} className="text-xs bg-blue-600 text-white px-2 py-1 rounded">Save</button>
+          <button onClick={() => setEditing(false)} className="text-xs text-gray-400">Cancel</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -404,6 +539,8 @@ function TimeClockTab({ job, jobId, onRefresh }: { job: any; jobId: string; onRe
             <th className="px-4 py-2 font-medium text-gray-600">Clock In</th>
             <th className="px-4 py-2 font-medium text-gray-600">Clock Out</th>
             <th className="px-4 py-2 text-right font-medium text-gray-600">Hours</th>
+            <th className="px-4 py-2 text-right font-medium text-gray-600">Km</th>
+            <th className="px-4 py-2 font-medium text-gray-600">Reason</th>
           </tr></thead>
           <tbody className="divide-y divide-gray-100">
             {job.timeEntries?.map((e: any) => (
@@ -412,6 +549,8 @@ function TimeClockTab({ job, jobId, onRefresh }: { job: any; jobId: string; onRe
                 <td className="px-4 py-2 text-gray-600">{new Date(e.clockIn).toLocaleString("en-ZA")}</td>
                 <td className="px-4 py-2 text-gray-600">{e.clockOut ? new Date(e.clockOut).toLocaleString("en-ZA") : <span className="text-green-600">On site</span>}</td>
                 <td className="px-4 py-2 text-right font-medium">{fmtHrs(e.hoursWorked)}</td>
+                <td className="px-4 py-2 text-right text-gray-500">{e.mileage != null ? `${e.mileage} km` : "—"}</td>
+                <td className="px-4 py-2 text-gray-500">{e.reason ?? "—"}</td>
               </tr>
             ))}
           </tbody>
@@ -566,6 +705,12 @@ function ProfitabilityTab({ jobId }: { jobId: string }) {
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 text-sm text-amber-800">
         <strong>Note:</strong> These formulas are provisional — confirm exact definitions with Riaan before treating as final.
         See <code className="text-xs bg-amber-100 px-1 rounded">src/lib/profitability.ts</code> for the calculation module.
+        {data.unpricedMaterialsCount > 0 && (
+          <p className="mt-2 font-semibold">
+            ⚠ {data.unpricedMaterialsCount} material line{data.unpricedMaterialsCount === 1 ? "" : "s"} still awaiting a price
+            (Site Reports tab) — materials cost below is understated until those are filled in.
+          </p>
+        )}
       </div>
 
       <div className="grid sm:grid-cols-2 gap-4 mb-6">

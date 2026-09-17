@@ -1,0 +1,11 @@
+# CW Painters Job & Quoting System — Next.js 16 App Router on Netlify.
+# Explicit here because Netlify's upload/API-based deploys (vs. a git-linked
+# site) don't reliably auto-install the Next.js Runtime plugin on their own —
+# without it, API routes and SSR pages silently 404 (static-only output).
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"

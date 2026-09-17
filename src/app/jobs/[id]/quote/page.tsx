@@ -14,6 +14,7 @@ interface LineItem {
   unitPrice: number;
   isCustom: boolean;
   templateId?: string;
+  category?: string; // display only — which template library this line came from
 }
 
 export default function QuoteBuilderPage() {
@@ -43,12 +44,20 @@ export default function QuoteBuilderPage() {
   }, [jobId]);
 
   useEffect(() => {
-    fetch(`/api/price-templates?category=${category}`).then((r) => r.json()).then(setTemplates);
-  }, [category]);
+    // Fetch every category's templates once — a job is often mixed scope
+    // (e.g. waterproofing + painting on the same site), so the picker
+    // shouldn't be locked to whichever one category the job/quote is
+    // primarily filed under.
+    fetch(`/api/price-templates`).then((r) => r.json()).then(setTemplates);
+  }, []);
 
   function addFromTemplate(t: any) {
-    setLineItems([...lineItems, { description: t.description, unit: t.unit ?? "", quantity: 1, unitPrice: t.unitPrice, isCustom: false, templateId: t.id }]);
+    setLineItems([...lineItems, { description: t.description, unit: t.unit ?? "", quantity: 1, unitPrice: t.unitPrice, isCustom: false, templateId: t.id, category: t.serviceCategory }]);
   }
+
+  const templatesByCategory = CATEGORIES
+    .map((c) => ({ category: c, items: templates.filter((t) => t.serviceCategory === c) }))
+    .filter((g) => g.items.length > 0);
 
   function addCustom() {
     setLineItems([...lineItems, { description: "", unit: "", quantity: 1, unitPrice: 0, isCustom: true }]);
@@ -137,11 +146,17 @@ export default function QuoteBuilderPage() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Service Category</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Primary Category
+                    <span className="font-normal text-gray-400"> — for invoicing &amp; reporting</span>
+                  </label>
                   <select value={category} onChange={(e) => setCategory(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                     {CATEGORIES.map((c) => <option key={c} value={c}>{c.replace(/_/g, " ")}</option>)}
                   </select>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Doesn&apos;t limit which line items you can add — pick whichever draw schedule (invoice stages) fits this job best. Mixed-scope jobs are fine: browse any category&apos;s templates on the right, or add custom lines.
+                  </p>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
@@ -166,6 +181,9 @@ export default function QuoteBuilderPage() {
                     <div className="grid grid-cols-12 gap-2 items-start">
                       <div className="col-span-12 sm:col-span-5">
                         {li.isCustom && <span className="text-xs bg-amber-100 text-amber-600 px-1.5 rounded mb-1 inline-block">custom</span>}
+                        {!li.isCustom && li.category && li.category !== category && (
+                          <span className="text-xs bg-blue-100 text-blue-600 px-1.5 rounded mb-1 inline-block">{li.category.replace(/_/g, " ")}</span>
+                        )}
                         <input
                           value={li.description} onChange={(e) => updateItem(i, "description", e.target.value)}
                           placeholder="Description"
@@ -214,18 +232,29 @@ export default function QuoteBuilderPage() {
 
           {/* Right: templates + summary */}
           <div className="space-y-4">
-            {/* Price templates */}
+            {/* Price templates — every category, so a mixed-scope job (e.g.
+                waterproofing + painting) can pull from all of them */}
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <h3 className="font-semibold text-sm mb-3">Template Items — {category.replace(/_/g, " ")}</h3>
-              <div className="space-y-1.5 max-h-72 overflow-y-auto">
-                {templates.map((t) => (
-                  <button key={t.id} onClick={() => addFromTemplate(t)}
-                    className="w-full text-left p-2 rounded-lg hover:bg-blue-50 text-sm transition-colors group">
-                    <div className="font-medium group-hover:text-blue-700">{t.description}</div>
-                    <div className="text-xs text-gray-400">R{t.unitPrice} / {t.unit ?? "each"}</div>
-                  </button>
+              <h3 className="font-semibold text-sm mb-1">Template Items</h3>
+              <p className="text-xs text-gray-400 mb-3">All categories — click any item to add it to this quote.</p>
+              <div className="space-y-3 max-h-96 overflow-y-auto">
+                {templatesByCategory.map((g) => (
+                  <div key={g.category}>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 sticky top-0 bg-white">
+                      {g.category.replace(/_/g, " ")}
+                    </p>
+                    <div className="space-y-1.5">
+                      {g.items.map((t) => (
+                        <button key={t.id} onClick={() => addFromTemplate(t)}
+                          className="w-full text-left p-2 rounded-lg hover:bg-blue-50 text-sm transition-colors group">
+                          <div className="font-medium group-hover:text-blue-700">{t.description}</div>
+                          <div className="text-xs text-gray-400">R{t.unitPrice} / {t.unit ?? "each"}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 ))}
-                {templates.length === 0 && <p className="text-xs text-gray-400">No templates for this category.</p>}
+                {templates.length === 0 && <p className="text-xs text-gray-400">No templates yet.</p>}
               </div>
             </div>
 

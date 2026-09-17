@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { href: "/leads", label: "Leads", roles: ["ADMIN", "SALESMAN"] },
   { href: "/jobs", label: "Jobs", roles: ["ADMIN", "SALESMAN", "FOREMAN"] },
   { href: "/weekly-report", label: "Weekly Report", roles: ["ADMIN", "SALESMAN"] },
+  { href: "/settings", label: "Settings", roles: ["ADMIN"] },
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {

@@ -24,8 +24,15 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ jobId:
 
   const revenue = job.acceptedQuote?.total ?? 0;
 
+  // Objective 1b's two-stage fill means a material can sit with totalCost:
+  // null until Admin attaches a price — treat those as 0 for now but surface
+  // the count so profitability isn't silently understated without a flag.
   const materialsTotal = job.dailyReports.reduce(
-    (sum, r) => sum + r.materials.reduce((s, m) => s + m.totalCost, 0),
+    (sum, r) => sum + r.materials.reduce((s, m) => s + (m.totalCost ?? 0), 0),
+    0
+  );
+  const unpricedMaterialsCount = job.dailyReports.reduce(
+    (sum, r) => sum + r.materials.filter((m) => m.totalCost == null).length,
     0
   );
 
@@ -51,6 +58,7 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ jobId:
     daysOnSite,
     invoicesTotal,
     amountPaid,
+    unpricedMaterialsCount,
     ...result,
   });
 }

@@ -25,6 +25,8 @@ model Tenant {
   drawSchedules DrawSchedule[]
   workers     Worker[]
   wageRates   WageRate[]
+  materialCatalogs MaterialCatalog[]
+  materialRequests MaterialRequest[]
 }
 
 // ─── Company entity (Riaan can invoice from multiple legal entities) ──────────
@@ -63,14 +65,26 @@ model User {
   passwordHash String
   name         String
   role         Role
+  // Foreman Mode — PIN quick-login (Objective 1). Only meaningful for role FOREMAN.
+  // pinEnabled is Riaan's per-user kill switch: he wants to trial the app solo
+  // before any foreman gets access, so this stays false until he flips it on.
+  pinHash      String?
+  pinEnabled   Boolean  @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  tenant       Tenant   @relation(fields: [tenantId], references: [id])
-  leadsLogged  Lead[]   @relation("LeadLoggedBy")
-  jobsManaged  Job[]    @relation("JobSalesman")
-  jobsForeman  Job[]    @relation("JobForeman")
-  dailyReports DailySiteReport[]
+  tenant             Tenant             @relation(fields: [tenantId], references: [id])
+  leadsLogged        Lead[]             @relation("LeadLoggedBy")
+  jobsManaged        Job[]              @relation("JobSalesman")
+  jobsForeman        Job[]              @relation("JobForeman")
+  dailyReports       DailySiteReport[]
+  jobSiteItemsAdded  JobSiteItem[]      @relation("SiteItemAddedBy")
+  materialRequestsMade     MaterialRequest[] @relation("MaterialRequestedBy")
+  materialRequestsApproved MaterialRequest[] @relation("MaterialApprovedBy")
+  materialRequestsDelivered MaterialRequest[] @relation("MaterialDeliveredBy")
+  upliftBatchesSubmitted   UpliftBatch[]  @relation("UpliftSubmittedBy")
+  upliftBatchesReconciled  UpliftBatch[]  @relation("UpliftReconciledBy")
+  materialPriceChanges MaterialCatalogPriceHistory[]
 }
 
 // ─── Workers (site labour — separate from system users) ──────────────────────
@@ -231,6 +245,9 @@ model Job {
   timeEntries     TimeEntry[]
   clientSignOff   ClientSignOff?
   worksheet       ForemanWorksheet?
+  siteItems       JobSiteItem[]
+  materialRequests MaterialRequest[]
+  upliftBatches   UpliftBatch[]
 }
 
 // ─── Quotes ───────────────────────────────────────────────────────────────────
@@ -311,6 +328,7 @@ model DailySiteReport {
   loggedBy    User     @relation(fields: [loggedById], references: [id])
   materials   MaterialUsed[]
   photos      SitePhoto[]
+  toolConfirmations SiteItemConfirmation[]
 }
 
 model MaterialUsed {
@@ -319,10 +337,29 @@ model MaterialUsed {
   description String
   quantity    Float
   unit        String?
-  unitCost    Float
-  totalCost   Float
+  // Two-stage fill (Objective 1b): the foreman logs description + quantity only,
+  // never a price. Admin comes back later and attaches invoiceNumber + unitCost
+  // asynchronously — so both are nullable at creation.
+  unitCost    Float?
+  totalCost   Float?
+  invoiceNumber String?
+  // Paint colour — mandatory whenever the source catalog item requiresColor.
+  color       String?
+  // Links back to the job's persistent roster / the request that created this
+  // reading, so the office can trace where a line came from. Both optional —
+  // a desktop-entered ad-hoc material (old flow) has neither.
+  jobSiteItemId     String?
+  materialRequestId String?  @unique
+  // Day-over-day anomaly flag (Objective 1b) — set at creation time by comparing
+  // against the same job+item's most recent prior reading. See
+  // src/lib/anomalyCheck.ts for the exact rule.
+  anomalyFlag Boolean         @default(false)
+  anomalyNote String?
+  createdAt   DateTime        @default(now())
 
-  report      DailySiteReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  report          DailySiteReport  @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  jobSiteItem     JobSiteItem?     @relation(fields: [jobSiteItemId], references: [id])
+  materialRequest MaterialRequest? @relation(fields: [materialRequestId], references: [id])
 }
 
 model SitePhoto {
@@ -349,6 +386,8 @@ model TimeEntry {
   clockIn            DateTime
   clockOut           DateTime?
   hoursWorked        Float?             // computed on clock-out
+  mileage            Float?             // optional — km for this entry/trip (Objective 1b timesheet)
+  reason             String?            // optional — never mandatory, always available to fill in
   verificationMethod VerificationMethod @default(MANUAL)
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
@@ -407,4 +446,175 @@ model ClientSignOff {
   notes       String?
 
   job         Job      @relation(fields: [jobId], references: [id])
+}
+
+// ─── Material catalog (Objective 1b) ───────────────────────────────────────────
+// Drives the Foreman Mode report picker. Distinct from the quote-facing
+// PriceTemplate: this is unit-cost-of-goods, editable by Admin, with history.
+
+model MaterialCatalog {
+  id               String   @id @default(cuid())
+  tenantId         String
+  name             String
+  unit             String?          // e.g. "L", "each", "roll"
+  currentUnitPrice Float?           // nullable — a brand-new item may start unpriced
+  colorRequired    Boolean  @default(false)
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  tenant           Tenant                         @relation(fields: [tenantId], references: [id])
+  siteItems        JobSiteItem[]
+  materialRequests MaterialRequest[]
+  priceHistory     MaterialCatalogPriceHistory[]
+}
+
+model MaterialCatalogPriceHistory {
+  id          String   @id @default(cuid())
+  catalogId   String
+  oldPrice    Float?
+  newPrice    Float?
+  changedById String
+  changedAt   DateTime @default(now())
+
+  catalog     MaterialCatalog @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+  changedBy   User            @relation(fields: [changedById], references: [id])
+}
+
+// ─── Job site item roster (Objective 1b) ───────────────────────────────────────
+// "What's on this site" — the Admin-seeded (or foreman-added, for a physically
+// present one-off tool) list that a Foreman Mode daily report is checked
+// against. TOOL rows persist and are re-confirmed report after report until
+// uplifted; CONSUMABLE rows just mark "this type of material belongs on this
+// job" — the actual day's quantity lives on MaterialUsed, one fresh row per
+// report, linked back here via jobSiteItemId.
+
+enum SiteItemType {
+  TOOL
+  CONSUMABLE
+}
+
+enum SiteItemStatus {
+  ON_SITE
+  UPLIFTED
+}
+
+model JobSiteItem {
+  id            String         @id @default(cuid())
+  jobId         String
+  type          SiteItemType
+  catalogId     String?        // set for a CONSUMABLE sourced from the catalog
+  name          String         // denormalised display name (catalog name, or a custom tool's typed name)
+  status        SiteItemStatus @default(ON_SITE)
+  addedById     String
+  foremanAdded  Boolean        @default(false) // true = foreman typed this in on-site, not Admin-planned
+  createdAt     DateTime       @default(now())
+  upliftedAt    DateTime?
+
+  job           Job                    @relation(fields: [jobId], references: [id])
+  catalog       MaterialCatalog?       @relation(fields: [catalogId], references: [id])
+  addedBy       User                   @relation("SiteItemAddedBy", fields: [addedById], references: [id])
+  confirmations SiteItemConfirmation[]
+  materialsUsed MaterialUsed[]
+  materialRequests MaterialRequest[]
+  upliftBatchItems UpliftBatchItem[]
+}
+
+// One row per TOOL per report — the foreman's "yes it's still here" tick.
+model SiteItemConfirmation {
+  id            String   @id @default(cuid())
+  reportId      String
+  jobSiteItemId String
+  present       Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  report        DailySiteReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  jobSiteItem   JobSiteItem     @relation(fields: [jobSiteItemId], references: [id])
+
+  @@unique([reportId, jobSiteItemId])
+}
+
+// ─── Material requests (restock) — Objective 1b ────────────────────────────────
+// Foreman asks for more of something; Admin approves/rejects; once delivered
+// the foreman confirms quantity received, which is what actually adds cost
+// (via the linked MaterialUsed row created on delivery-confirm).
+
+enum MaterialRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  DELIVERED
+}
+
+model MaterialRequest {
+  id              String                 @id @default(cuid())
+  tenantId        String
+  jobId           String
+  jobSiteItemId   String?                // set when topping up an item already on the roster
+  catalogId       String?                // set when requesting a known catalog item not yet on the roster
+  customItemName  String?                // set for something not in the catalog at all
+  requestedQty    Float
+  unit            String?
+  note            String?
+  status          MaterialRequestStatus  @default(PENDING)
+  requestedById   String
+  requestedAt     DateTime               @default(now())
+  approvedById    String?
+  approvedAt      DateTime?
+  rejectionReason String?
+  deliveredQty    Float?
+  deliveredConfirmedById String?
+  deliveredConfirmedAt   DateTime?
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id])
+  job             Job              @relation(fields: [jobId], references: [id])
+  jobSiteItem     JobSiteItem?     @relation(fields: [jobSiteItemId], references: [id])
+  catalog         MaterialCatalog? @relation(fields: [catalogId], references: [id])
+  requestedBy     User             @relation("MaterialRequestedBy", fields: [requestedById], references: [id])
+  approvedBy      User?            @relation("MaterialApprovedBy", fields: [approvedById], references: [id])
+  deliveredConfirmedBy User?       @relation("MaterialDeliveredBy", fields: [deliveredConfirmedById], references: [id])
+  resultingMaterialUsed MaterialUsed?
+}
+
+// ─── Uplift workflow — Objective 1b ────────────────────────────────────────────
+// Two-stage: foreman submits a batch (gated behind confirming everything
+// currently on site), then Admin does a final reconciliation pass.
+
+enum UpliftBatchStatus {
+  SUBMITTED
+  RECONCILED
+}
+
+enum UpliftItemStatus {
+  PRESENT
+  MISSING
+  EXCEPTION
+}
+
+model UpliftBatch {
+  id                   String            @id @default(cuid())
+  jobId                String
+  submittedByForemanId String
+  submittedAt          DateTime          @default(now())
+  status               UpliftBatchStatus @default(SUBMITTED)
+  officeReconciledAt   DateTime?
+  officeReconciledById String?
+
+  job                  Job               @relation(fields: [jobId], references: [id])
+  submittedByForeman   User              @relation("UpliftSubmittedBy", fields: [submittedByForemanId], references: [id])
+  officeReconciledBy   User?             @relation("UpliftReconciledBy", fields: [officeReconciledById], references: [id])
+  items                UpliftBatchItem[]
+}
+
+model UpliftBatchItem {
+  id              String            @id @default(cuid())
+  batchId         String
+  jobSiteItemId   String
+  status          UpliftItemStatus  @default(PRESENT)
+  exceptionReason String?
+
+  batch           UpliftBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  jobSiteItem     JobSiteItem @relation(fields: [jobSiteItemId], references: [id])
+
+  @@unique([batchId, jobSiteItemId])
 }

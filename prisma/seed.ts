@@ -1,5 +1,18 @@
 import { PrismaClient, Role, ServiceCategory, LeadSource, LeadStatus, VerificationMethod } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import path from "node:path";
+
+// `tsx prisma/seed.ts` (run directly, or via npm run db:seed/setup) doesn't
+// auto-load .env.local the way Next.js does — same gap fixed in
+// prisma.config.ts, needed here too so DATABASE_URL is actually visible.
+for (const file of [".env.local", ".env"]) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require("dotenv").config({ path: path.join(process.cwd(), file) });
+  } catch {
+    /* file may not exist — fine, fall through */
+  }
+}
 
 function createClient() {
   const url = process.env.DATABASE_URL ?? "";
@@ -75,6 +88,9 @@ async function main() {
     },
   });
 
+  // PIN starts unset/disabled — Riaan wants to trial Foreman Mode himself
+  // before any foreman gets PIN access (Objective 1b rollout note). Seeded
+  // with PIN 1234 but pinEnabled: false so it's ready for a demo/testing flip.
   const foreman = await prisma.user.upsert({
     where: { email: "foreman@cwpainters.co.za" },
     update: {},
@@ -84,6 +100,8 @@ async function main() {
       passwordHash: hash("foreman123"),
       name: "Thabo Mokoena",
       role: Role.FOREMAN,
+      pinHash: hash("1234"),
+      pinEnabled: false,
     },
   });
 
@@ -152,6 +170,44 @@ async function main() {
     await prisma.priceTemplate.create({
       data: { tenantId: tenant.id, serviceCategory: t.cat, description: t.desc, unit: t.unit, unitPrice: t.price },
     });
+  }
+
+  // ── Material catalog (Objective 1b) ─────────────────────────────────────────
+  // Ported from the standalone CW Painters Daily Report App's Config table
+  // (paint list + a representative slice of the equipment list) rather than
+  // re-typing it — see Part A of the Phase 2 plan.
+  const catalogItems: { name: string; unit: string; price: number | null; colorRequired?: boolean }[] = [
+    { name: "Sabatex", unit: "L", price: 85, colorRequired: true },
+    { name: "Micatex", unit: "L", price: 78, colorRequired: true },
+    { name: "Damp Seal", unit: "L", price: 110, colorRequired: false },
+    { name: "Wall & All (Colour)", unit: "L", price: 95, colorRequired: true },
+    { name: "Wall & All (White)", unit: "L", price: 88 },
+    { name: "UBM 1", unit: "L", price: 120 },
+    { name: "USP 1", unit: "L", price: 115 },
+    { name: "UWU 1", unit: "L", price: 130 },
+    { name: "Velvaglo OB", unit: "L", price: 145, colorRequired: true },
+    { name: "Velvaglo WB", unit: "L", price: 140, colorRequired: true },
+    { name: "Varnish", unit: "L", price: 160 },
+    { name: "Etch Primer", unit: "L", price: 135 },
+    { name: "PWC 520", unit: "L", price: 175 },
+    { name: "Roof TRP", unit: "L", price: 190, colorRequired: true },
+    { name: "Roof URP", unit: "L", price: 185, colorRequired: true },
+    { name: "Profill", unit: "kg", price: 65 },
+    { name: "Bonding Liquid", unit: "L", price: 55 },
+    { name: "Anti-Fungal", unit: "L", price: 70 },
+    { name: "Strontium Chromate", unit: "L", price: 150 }, // NB — cut off in the original source doc, confirm name with Riaan
+    { name: "Turps", unit: "L", price: 35 },
+    { name: "Thinners", unit: "L", price: 40 },
+    { name: "Silicone", unit: "tube", price: 45 },
+    { name: "Putty TK", unit: "kg", price: 50 },
+    { name: "Putty WHT", unit: "kg", price: 50 },
+  ];
+  const catalogByName: Record<string, string> = {};
+  for (const c of catalogItems) {
+    const created = await prisma.materialCatalog.create({
+      data: { tenantId: tenant.id, name: c.name, unit: c.unit, currentUnitPrice: c.price, colorRequired: !!c.colorRequired },
+    });
+    catalogByName[c.name] = created.id;
   }
 
   // ── Workers ──────────────────────────────────────────────────────────────────
@@ -263,6 +319,38 @@ async function main() {
     },
   });
 
+  // ── Sample job site roster (Objective 1b) ────────────────────────────────────
+  // Admin-seeded before the foreman ever opens the app, plus one demo material
+  // request sitting at PENDING so Settings -> Material Requests has something
+  // to show.
+  const rosterTools = await Promise.all(
+    ["Extension Ladder", "Spray Machine", "HPW"].map((name) =>
+      prisma.jobSiteItem.create({ data: { jobId: sampleJob.id, type: "TOOL", name, addedById: admin.id } })
+    )
+  );
+  const rosterPaint = await prisma.jobSiteItem.create({
+    data: { jobId: sampleJob.id, type: "CONSUMABLE", catalogId: catalogByName["Wall & All (Colour)"], name: "Wall & All (Colour)", addedById: admin.id },
+  });
+
+  for (const t of rosterTools) {
+    await prisma.siteItemConfirmation.create({ data: { reportId: report.id, jobSiteItemId: t.id, present: true } });
+  }
+  await prisma.materialUsed.create({
+    data: { reportId: report.id, jobSiteItemId: rosterPaint.id, description: rosterPaint.name, quantity: 12, color: "Merino", unitCost: 95, totalCost: 1140 },
+  });
+
+  await prisma.materialRequest.create({
+    data: {
+      tenantId: tenant.id,
+      jobId: sampleJob.id,
+      catalogId: catalogByName["Bonding Liquid"],
+      requestedQty: 10,
+      unit: "L",
+      note: "Running low, need it before Thursday",
+      requestedById: foreman.id,
+    },
+  });
+
   // Sample time entries
   for (const w of workers) {
     await prisma.timeEntry.create({
@@ -282,6 +370,7 @@ async function main() {
   console.log("  Admin:    riaan@cwpainters.co.za   / admin123");
   console.log("  Salesman: sales@cwpainters.co.za   / sales123");
   console.log("  Foreman:  foreman@cwpainters.co.za / foreman123");
+  console.log("Foreman PIN login (Objective 1): PIN 1234, currently DISABLED — flip pinEnabled on in Settings -> Foreman Access to try /foreman.");
 }
 
 main()

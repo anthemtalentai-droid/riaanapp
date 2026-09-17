@@ -15,10 +15,12 @@ export async function GET() {
     where,
     include: {
       lead: { select: { clientName: true } },
-      acceptedQuote: { select: { total: true, quoteNumber: true } },
+      // FOREMAN must never see quote value or invoice/report counts that hint
+      // at money — Foreman Mode has its own /api/foreman/jobs for that.
+      acceptedQuote: u.role === "FOREMAN" ? false : { select: { total: true, quoteNumber: true } },
       salesman: { select: { name: true } },
       foreman: { select: { name: true } },
-      _count: { select: { invoices: true, dailyReports: true } },
+      _count: u.role === "FOREMAN" ? false : { select: { invoices: true, dailyReports: true } },
     },
     orderBy: { createdAt: "desc" },
   });

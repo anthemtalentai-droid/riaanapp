@@ -9,14 +9,19 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
   const u = session.user as any;
   const { id } = await params;
 
+  const isForeman = u.role === "FOREMAN";
+
   const job = await prisma.job.findFirst({
     where: { id, tenantId: u.tenantId },
     include: {
       lead: true,
-      acceptedQuote: { include: { lineItems: true } },
+      // FOREMAN must never see quote/invoice money — server-side, not just
+      // hidden UI. Foreman Mode has its own /api/foreman/* routes for the
+      // non-financial data it actually needs.
+      acceptedQuote: isForeman ? false : { include: { lineItems: true } },
       salesman: { select: { id: true, name: true } },
       foreman: { select: { id: true, name: true } },
-      invoices: { include: { companyEntity: { select: { tradingAs: true, legalName: true } } } },
+      invoices: isForeman ? false : { include: { companyEntity: { select: { tradingAs: true, legalName: true } } } },
       dailyReports: {
         include: { materials: true, photos: true, loggedBy: { select: { name: true } } },
         orderBy: { reportDate: "desc" },
@@ -31,7 +36,7 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
   });
 
   if (!job) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (u.role === "FOREMAN" && job.foremanId !== u.id) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (isForeman && job.foremanId !== u.id) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   return NextResponse.json(job);
 }
