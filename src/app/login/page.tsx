@@ -7,6 +7,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -15,10 +16,18 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
 
-    const result = await signIn("credentials", { email, password, redirect: false });
+    // Trim stray spaces and ignore capitals in the email: both are common when
+    // typing on a phone and should never stop someone getting in.
+    const result = await signIn("credentials", {
+      email: email.trim().toLowerCase(),
+      password: password.trim(),
+      redirect: false,
+    });
 
     if (result?.error) {
-      setError("Invalid email or password.");
+      setError(
+        "That email or password doesn't match. Please check for typos (tick \"Show password\" to see what you typed) and try again.",
+      );
       setLoading(false);
     } else {
       router.push("/dashboard");
@@ -27,7 +36,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
       <div className="w-full max-w-sm">
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
           <div className="mb-8 text-center">
@@ -35,31 +44,49 @@ export default function LoginPage() {
               CW
             </div>
             <h1 className="text-xl font-semibold text-gray-900">CW Painters</h1>
-            <p className="text-sm text-gray-500 mt-1">Ritriwill Holdings Job System</p>
+            <p className="text-sm text-gray-500 mt-1">Sign in to your job system</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">Email</label>
               <input
+                id="email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                autoComplete="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="you@cwpainters.co.za"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">Password</label>
               <input
-                type="password"
+                id="password"
+                type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                autoComplete="current-password"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="••••••••"
               />
+              <label className="mt-2 flex items-center gap-2 text-sm text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={showPassword}
+                  onChange={(e) => setShowPassword(e.target.checked)}
+                />
+                Show password
+              </label>
             </div>
 
             {error && <p className="text-sm text-red-600">{error}</p>}
@@ -67,20 +94,15 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg text-sm transition-colors disabled:opacity-50"
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-lg text-base transition-colors disabled:opacity-50"
             >
               {loading ? "Signing in…" : "Sign in"}
             </button>
           </form>
 
-          <div className="mt-6 pt-5 border-t border-gray-100">
-            <p className="text-xs text-gray-400 font-medium mb-2">Demo credentials</p>
-            <div className="space-y-1 text-xs text-gray-500">
-              <div className="flex justify-between"><span className="font-medium">Admin (Riaan)</span><span>admin123</span></div>
-              <div className="flex justify-between"><span className="font-medium">Salesman</span><span>sales123</span></div>
-              <div className="flex justify-between"><span className="font-medium">Foreman</span><span>foreman123</span></div>
-            </div>
-          </div>
+          <p className="mt-6 pt-5 border-t border-gray-100 text-xs text-gray-500 text-center">
+            Forgot your password or can&apos;t get in? Please message Ian and he&apos;ll sort it out.
+          </p>
         </div>
       </div>
     </div>

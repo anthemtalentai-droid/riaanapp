@@ -26,9 +26,9 @@ Open **http://localhost:3000**
 
 | Role     | Email                        | Password   |
 |----------|------------------------------|------------|
-| Admin    | riaan@cwpainters.co.za       | admin123   |
-| Salesman | sales@cwpainters.co.za       | sales123   |
-| Foreman  | foreman@cwpainters.co.za     | foreman123 |
+| Admin    | riaan@cwpainters.co.za       | (set via SEED_PASSWORD) |
+| Salesman | sales@cwpainters.co.za       | (set via SEED_PASSWORD) |
+| Foreman  | foreman@cwpainters.co.za     | (set via SEED_PASSWORD) |
 
 ---
 

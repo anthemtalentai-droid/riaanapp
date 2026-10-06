@@ -14,6 +14,12 @@ for (const file of [".env.local", ".env"]) {
   }
 }
 
+// Demo users no longer have published passwords. Set SEED_PASSWORD (and
+// optionally SEED_PIN) before seeding; otherwise a random one is generated.
+// NEVER run this against the live database — it resets the demo accounts.
+const SEED_PASSWORD = process.env.SEED_PASSWORD || require("node:crypto").randomBytes(9).toString("base64url");
+const SEED_PIN = process.env.SEED_PIN || String(require("node:crypto").randomInt(1000, 10000));
+
 function createClient() {
   const url = process.env.DATABASE_URL ?? "";
   if (url.startsWith("postgresql") || url.startsWith("postgres")) {
@@ -70,7 +76,7 @@ async function main() {
     create: {
       tenantId: tenant.id,
       email: "riaan@cwpainters.co.za",
-      passwordHash: hash("admin123"),
+      passwordHash: hash(SEED_PASSWORD),
       name: "Riaan Willemse",
       role: Role.ADMIN,
     },
@@ -82,7 +88,7 @@ async function main() {
     create: {
       tenantId: tenant.id,
       email: "sales@cwpainters.co.za",
-      passwordHash: hash("sales123"),
+      passwordHash: hash(SEED_PASSWORD),
       name: "Johan du Plessis",
       role: Role.SALESMAN,
     },
@@ -97,10 +103,10 @@ async function main() {
     create: {
       tenantId: tenant.id,
       email: "foreman@cwpainters.co.za",
-      passwordHash: hash("foreman123"),
+      passwordHash: hash(SEED_PASSWORD),
       name: "Thabo Mokoena",
       role: Role.FOREMAN,
-      pinHash: hash("1234"),
+      pinHash: hash(SEED_PIN),
       pinEnabled: false,
     },
   });
@@ -367,10 +373,8 @@ async function main() {
 
   console.log("Seed complete.");
   console.log("Demo credentials:");
-  console.log("  Admin:    riaan@cwpainters.co.za   / admin123");
-  console.log("  Salesman: sales@cwpainters.co.za   / sales123");
-  console.log("  Foreman:  foreman@cwpainters.co.za / foreman123");
-  console.log("Foreman PIN login (Objective 1): PIN 1234, currently DISABLED — flip pinEnabled on in Settings -> Foreman Access to try /foreman.");
+  console.log("  Demo users use SEED_PASSWORD (set it in your environment before seeding).");
+  console.log("Foreman PIN login: PIN is SEED_PIN, currently DISABLED — flip pinEnabled on in Settings -> Foreman Access to try /foreman.");
 }
 
 main()

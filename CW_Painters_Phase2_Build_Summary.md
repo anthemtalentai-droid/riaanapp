@@ -6,10 +6,10 @@
 | | |
 |---|---|
 | **URL** | https://cw-painters-job-system.netlify.app |
-| **Admin** | riaan@cwpainters.co.za / admin123 |
-| **Salesman** | sales@cwpainters.co.za / sales123 |
-| **Foreman (desktop login)** | foreman@cwpainters.co.za / foreman123 |
-| **Foreman Mode** (`/foreman`) | PIN login is **enabled** for the demo foreman (Thabo Mokoena), PIN `1234` — flip it off in Settings → Foreman Access once you're done poking at it, per Riaan's "let me test it solo first" ask |
+| **Admin** | riaan@cwpainters.co.za (password shared privately) |
+| **Salesman** | sales@cwpainters.co.za (locked on the live system) |
+| **Foreman (desktop login)** | foreman@cwpainters.co.za (locked on the live system) |
+| **Foreman Mode** (`/foreman`) | PIN login is **enabled** for the demo foreman (Thabo Mokoena), PIN set in Settings → Foreman Access — flip it off in Settings → Foreman Access once you're done poking at it, per Riaan's "let me test it solo first" ask |
 | Database | Neon Postgres (your project) |
 | Netlify project | `cw-painters-job-system`, team anthemtalentai, site id `2ff680f0-f6d2-47f3-bd3c-75dd7be6e085` |
 
@@ -54,7 +54,7 @@ A genuinely separate mobile flow at `/foreman`, distinct from the desktop app:
 - **Two-stage fill** — `MaterialUsed.unitCost`/`totalCost`/`invoiceNumber` are all nullable now; the foreman's report never carries a price. Admin fills them in later from the (existing, now-editable) Site Reports tab — a "Set price" link appears on any unpriced line.
 - **Editable, propagating price catalog** — `Settings → Material Catalog`: Admin edits a price, it's logged to `MaterialCatalogPriceHistory`, and every future report reads the live price.
 - **Timesheet** — `TimeEntry.mileage` + `.reason`, both optional, captured at clock-out on the Foreman Mode clock screen; both now shown on the desktop Time Clock tab's table too. Live GPS is explicitly deferred, as you said was fine.
-- **PIN rollout toggle** — `Settings → Foreman Access`: every foreman defaults to PIN **disabled**, so you can trial it yourself before flipping it on for the crew. Demo foreman is seeded with PIN `1234`, disabled.
+- **PIN rollout toggle** — `Settings → Foreman Access`: every foreman defaults to PIN **disabled**, so you can trial it yourself before flipping it on for the crew. Demo foreman is seeded with PIN set in Settings → Foreman Access, disabled.
 
 ### A call I made that's worth you weighing in on
 Section 1b says tools are foreman-addable but the roster is otherwise "Admin-only edit rights." I read that as: Admin controls the *planned* roster and all *consumables*; a foreman can still note a physically-present one-off tool without needing sign-off first (he can't un-see a drill that's there). If you want foreman-added tools to also need Admin approval before they count, that's a small change.

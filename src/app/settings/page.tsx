@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import AppShell from "@/components/AppShell";
 
 const TABS = [
+  { key: "account", label: "My Password" },
   { key: "foremen", label: "Foreman Access" },
   { key: "catalog", label: "Material Catalog" },
   { key: "requests", label: "Material Requests" },
@@ -27,12 +28,58 @@ export default function SettingsPage() {
           ))}
         </div>
 
+        {tab === "account" && <MyPasswordTab />}
         {tab === "foremen" && <ForemanAccessTab />}
         {tab === "catalog" && <MaterialCatalogTab />}
         {tab === "requests" && <MaterialRequestsTab />}
         {tab === "uplift" && <UpliftReconciliationTab />}
       </div>
     </AppShell>
+  );
+}
+
+// ─── My Password ────────────────────────────────────────────────────────────
+
+function MyPasswordTab() {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [show, setShow] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true); setMsg(null);
+    const res = await fetch("/api/account/password", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ currentPassword: current, newPassword: next }),
+    });
+    const j = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (res.ok) { setMsg({ ok: true, text: "Done! Your password has been changed. Use the new one next time you sign in." }); setCurrent(""); setNext(""); }
+    else setMsg({ ok: false, text: j.error || "Something went wrong. Please try again." });
+  }
+
+  const input = "w-full px-3 py-2.5 border border-gray-300 rounded-lg text-base";
+  return (
+    <form onSubmit={submit} className="bg-white rounded-xl border border-gray-200 p-5 max-w-md space-y-4">
+      <p className="text-sm text-gray-600">Choose your own password so only you know it. Use at least 8 characters.</p>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Current password</label>
+        <input type={show ? "text" : "password"} value={current} onChange={(e) => setCurrent(e.target.value)} autoCapitalize="off" autoCorrect="off" className={input} />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">New password</label>
+        <input type={show ? "text" : "password"} value={next} onChange={(e) => setNext(e.target.value)} autoCapitalize="off" autoCorrect="off" className={input} />
+      </div>
+      <label className="flex items-center gap-2 text-sm text-gray-600">
+        <input type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)} /> Show passwords
+      </label>
+      {msg && <p className={`text-sm ${msg.ok ? "text-green-700" : "text-red-600"}`}>{msg.text}</p>}
+      <button type="submit" disabled={busy || !current || !next} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium disabled:opacity-50">
+        {busy ? "Saving…" : "Change my password"}
+      </button>
+    </form>
   );
 }
 

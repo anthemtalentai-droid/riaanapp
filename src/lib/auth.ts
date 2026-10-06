@@ -14,13 +14,19 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
 
+        // Phones often capitalise the first letter or add a trailing space
+        // (autocomplete/keyboard suggestions). Be forgiving so a harmless slip
+        // never looks like "wrong password". Emails are stored lowercase.
+        const email = credentials.email.trim().toLowerCase();
+        const password = credentials.password.trim();
+
         const user = await prisma.user.findUnique({
-          where: { email: credentials.email },
+          where: { email },
         });
 
         if (!user) return null;
 
-        const valid = await bcrypt.compare(credentials.password, user.passwordHash);
+        const valid = await bcrypt.compare(password, user.passwordHash);
         if (!valid) return null;
 
         return {
